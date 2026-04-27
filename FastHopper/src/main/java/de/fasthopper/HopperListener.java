@@ -1,14 +1,17 @@
 package de.fasthopper;
 
 import org.bukkit.Bukkit;
+import org.bukkit.Material;
 import org.bukkit.World;
 import org.bukkit.block.Block;
+import org.bukkit.block.BlockFace;
 import org.bukkit.block.Hopper;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.EventPriority;
 import org.bukkit.event.Listener;
 import org.bukkit.event.inventory.InventoryMoveItemEvent;
 import org.bukkit.inventory.Inventory;
+import org.bukkit.inventory.ItemStack;
 import org.bukkit.scheduler.BukkitTask;
 
 import java.util.HashMap;
@@ -17,55 +20,96 @@ import java.util.Map;
 public class HopperListener implements Listener {
 
     private final FastHopper plugin;
-
-    // Speichert den letzten Tick, in dem ein Hopper ein Item transferiert hat.
-    // Key = "welt:x:y:z"
     private final Map<String, Long> lastTransferTick = new HashMap<>();
-
     private BukkitTask cleanupTask;
+
+    // Alle 4 Seiten die ein Comparator neben einem Hopper haben kann
+    private static final BlockFace[] FACES = {
+        BlockFace.NORTH, BlockFace.SOUTH, BlockFace.EAST, BlockFace.WEST
+    };
 
     public HopperListener(FastHopper plugin) {
         this.plugin = plugin;
         startCleanupTask();
     }
 
-    // -----------------------------------------------------------------------
-    // Haupt-Event: jeden Hopper-Transfer abfangen
-    // -----------------------------------------------------------------------
-
     @EventHandler(priority = EventPriority.HIGH, ignoreCancelled = true)
     public void onHopperMove(InventoryMoveItemEvent event) {
         Inventory source = event.getSource();
-
-        // Nur Hopper als Quelle behandeln
         if (!(source.getHolder() instanceof Hopper hopper)) return;
 
-        int cooldown = getCooldownTicks();
+        Block block = hopper.getBlock();
 
-        // Bei Vanilla-Speed (8 Ticks) nichts tun
-        if (cooldown >= 8) return;
-
-        String key = locationKey(hopper.getBlock());
-        long currentTick = getCurrentTick();
-
-        Long last = lastTransferTick.get(key);
-
-        if (last != null && (currentTick - last) < cooldown) {
-            // Cooldown noch nicht abgelaufen → Transfer blockieren
-            // Minecraft versucht es beim nächsten Tick automatisch erneut
-            event.setCancelled(true);
+        // Prüfen ob ein Comparator neben diesem Hopper steht
+        if (hasSorterComparator(block)) {
+            // Sorter-Hopper: Vanilla-Verhalten (1 Item, normales Timing)
+            // Nichts tun → Minecraft macht es wie gewohnt
             return;
         }
 
-        // Transfer erlauben und Tick speichern
-        // → Es wird IMMER nur 1 Item transferiert (Vanilla-Verhalten bleibt)
-        // → Item-Sorter funktionieren korrekt weiter!
+        // Normaler Hopper: schnell + mehrere Items pro Transfer
+        int itemsPerTransfer = plugin.getHopperInterval();
+
+        // 1 Item wird sowieso von Vanilla transferiert.
+        // Wir transferieren (itemsPerTransfer - 1) zusätzliche Items sofort danach.
+        if (itemsPerTransfer > 1) {
+            Inventory destination = event.getDestination();
+            // Zusätzliche Items direkt übertragen
+            int extra = itemsPerTransfer - 1;
+            for (int i = 0; i < extra; i++) {
+                if (!transferOneItem(source, destination)) break;
+            }
+        }
+
+        // Tick-Cooldown auf 1 setzen (maximale Geschwindigkeit)
+        String key = locationKey(block);
+        long currentTick = getCurrentTick();
+        Long last = lastTransferTick.get(key);
+        if (last != null && (currentTick - last) < 1) {
+            event.setCancelled(true);
+            return;
+        }
         lastTransferTick.put(key, currentTick);
     }
 
-    // -----------------------------------------------------------------------
-    // Aufräumen: alte Einträge alle 30 Sekunden löschen
-    // -----------------------------------------------------------------------
+    /**
+     * Prüft ob neben dem Hopper ein Comparator steht (= Sorter-Hopper).
+     */
+    private boolean hasSorterComparator(Block hopperBlock) {
+        for (BlockFace face : FACES) {
+            Block neighbor = hopperBlock.getRelative(face);
+            if (neighbor.getType() == Material.COMPARATOR) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * Transferiert ein einzelnes Item von source nach destination.
+     * Gibt true zurück wenn erfolgreich.
+     */
+    private boolean transferOneItem(Inventory source, Inventory destination) {
+        for (int i = 0; i < source.getSize(); i++) {
+            ItemStack item = source.getItem(i);
+            if (item == null || item.getType() == Material.AIR) continue;
+
+            ItemStack single = item.clone();
+            single.setAmount(1);
+
+            Map<Integer, ItemStack> leftover = destination.addItem(single);
+            if (leftover.isEmpty()) {
+                if (item.getAmount() == 1) {
+                    source.setItem(i, null);
+                } else {
+                    item.setAmount(item.getAmount() - 1);
+                    source.setItem(i, item);
+                }
+                return true;
+            }
+        }
+        return false;
+    }
 
     private void startCleanupTask() {
         cleanupTask = Bukkit.getScheduler().runTaskTimer(plugin, () -> {
@@ -77,28 +121,6 @@ public class HopperListener implements Listener {
     public void shutdown() {
         if (cleanupTask != null) cleanupTask.cancel();
         lastTransferTick.clear();
-    }
-
-    // -----------------------------------------------------------------------
-    // Hilfsmethoden
-    // -----------------------------------------------------------------------
-
-    /**
-     * Berechnet den Cooldown in Ticks zwischen zwei Transfers.
-     *
-     * Vanilla-Hopper transferieren 1 Item alle 8 Ticks.
-     * Unser "hopper-interval" ist ein Geschwindigkeits-Multiplikator:
-     *
-     *   interval 1  → 8 Ticks Pause (= Vanilla)
-     *   interval 2  → 4 Ticks Pause (2× schneller)
-     *   interval 4  → 2 Ticks Pause (4× schneller)
-     *   interval 8  → 1 Tick  Pause (8× schneller, Maximum)
-     *
-     * Immer nur 1 Item pro Transfer → Item-Sorter bleiben kompatibel!
-     */
-    private int getCooldownTicks() {
-        int multiplier = plugin.getHopperInterval();
-        return Math.max(1, 8 / multiplier);
     }
 
     private long getCurrentTick() {
