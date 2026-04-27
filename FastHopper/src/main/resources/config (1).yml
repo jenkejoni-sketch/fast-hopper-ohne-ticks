@@ -1,0 +1,17 @@
+# FastHopper Konfiguration
+#
+# hopper-interval: Geschwindigkeits-Multiplikator für Hopper.
+#
+#   Wie es funktioniert:
+#   Vanilla-Hopper transferieren 1 Item alle 8 Ticks.
+#   Dieses Plugin verkürzt die Pause zwischen den Transfers.
+#   Es wird IMMER nur 1 Item pro Transfer bewegt → Item-Sorter funktionieren!
+#
+#   interval 1  → alle 8 Ticks  (Vanilla, keine Änderung)
+#   interval 2  → alle 4 Ticks  (2× schneller)
+#   interval 4  → alle 2 Ticks  (4× schneller)
+#   interval 8  → alle 1 Tick   (8× schneller, Maximum)
+#
+#   Empfehlung für Item-Sorter: 4 oder 8
+#
+hopper-interval: 8

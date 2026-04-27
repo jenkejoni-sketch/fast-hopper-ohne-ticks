@@ -1,0 +1,17 @@
+name: FastHopper
+version: 1.0.0
+main: de.fasthopper.FastHopper
+api-version: "1.21"
+description: Erhöht die Hopper-Transfergeschwindigkeit
+author: FastHopper
+
+commands:
+  fasthopper:
+    description: FastHopper Verwaltung
+    usage: /fasthopper [set <wert>|reload]
+    permission: fasthopper.admin
+
+permissions:
+  fasthopper.admin:
+    description: Erlaubt die Verwaltung von FastHopper
+    default: op
