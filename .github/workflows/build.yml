@@ -18,6 +18,9 @@ jobs:
           java-version: '21'
           distribution: 'temurin'
 
+      - name: Struktur anzeigen
+        run: find . -name "pom.xml"
+
       - name: JAR bauen
         run: cd FastHopper && mvn clean package
 
